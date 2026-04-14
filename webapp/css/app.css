@@ -430,6 +430,66 @@ select.form-control { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
 .toggle input:checked + .toggle-slider { background: var(--success); }
 .toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
 
+/* ── Envío gratis badge ─────────────────────────────────────── */
+.badge-envio-gratis {
+  display: inline-block;
+  background: #dcfce7; color: #16a34a;
+  font-size: .65rem; font-weight: 800;
+  padding: 2px 7px; border-radius: 99px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+/* ── Zona selector (nuevo pedido) ───────────────────────────── */
+.zona-selector {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  margin-bottom: 4px;
+}
+.zona-option { display: contents; }
+.zona-option input[type=radio] { display: none; }
+.zona-btn {
+  border: 2px solid var(--gray-200);
+  border-radius: var(--r); padding: 10px 12px;
+  cursor: pointer; transition: border-color .15s, background .15s;
+  text-align: center;
+}
+.zona-option input:checked + .zona-btn {
+  border-color: var(--primary); background: var(--primary-l);
+}
+.zona-nombre { font-weight: 700; font-size: .9rem; }
+.zona-detalle { display: flex; gap: 6px; justify-content: center; margin-top: 4px; flex-wrap: wrap; }
+.zona-cobra {
+  font-size: .72rem; background: #dcfce7; color: #16a34a;
+  padding: 1px 6px; border-radius: 99px;
+}
+.zona-paga {
+  font-size: .72rem; background: #fee2e2; color: #dc2626;
+  padding: 1px 6px; border-radius: 99px;
+}
+
+/* ── Panel info envío ───────────────────────────────────────── */
+.envio-panel { margin-bottom: 4px; }
+.envio-info-panel, .envio-gratis-banner {
+  border-radius: var(--r); padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.envio-info-panel { background: #fff7ed; border: 1px solid #fed7aa; }
+.envio-gratis-banner { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.envio-gratis-detalle {
+  font-size: .82rem; color: var(--gray-600);
+  margin: 8px 0; text-align: center;
+}
+.envio-costos-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px; margin-top: 8px;
+}
+.envio-costo-item { text-align: center; }
+.envio-costo-label { font-size: .7rem; color: var(--gray-500); }
+.envio-costo-value { font-size: .9rem; font-weight: 700; margin-top: 2px; }
+
+/* ── form-hint ──────────────────────────────────────────────── */
+.form-hint { font-size: .72rem; color: var(--gray-400); font-weight: 400; margin-left: 4px; }
+
 /* ── Modal / Sheet ──────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;
