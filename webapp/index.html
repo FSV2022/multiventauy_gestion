@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#4F46E5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>MultiVenta UY</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <span class="header-title" id="headerTitle">MultiVenta UY</span>
+    <div class="header-actions">
+      <span class="realtime-dot offline" id="realtimeDot" title="Conectando..."></span>
+    </div>
+  </header>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main content -->
+  <div id="app-content">
+    <div class="view flex-center" style="min-height:60vh">
+      <div><div class="spinner"></div><p class="text-center text-muted text-sm mt-12">Cargando...</p></div>
+    </div>
+  </div>
+
+  <!-- Modal overlay (reutilizable) -->
+  <div class="modal-overlay" id="modalOverlay" onclick="UI.closeModal(event)">
+    <div class="sheet" id="modalSheet">
+      <div class="sheet-handle"></div>
+      <div id="modalContent"></div>
+    </div>
+  </div>
+
+  <!-- Bottom nav -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-view="dashboard">
+      <span class="icon">🏠</span><span class="label">Inicio</span>
+    </button>
+    <button class="nav-btn" data-view="nuevo">
+      <span class="icon">➕</span><span class="label">Nuevo</span>
+    </button>
+    <button class="nav-btn" data-view="pedidos">
+      <span class="icon">📋</span><span class="label">Pedidos</span>
+    </button>
+    <button class="nav-btn" data-view="liquidacion">
+      <span class="icon">💰</span><span class="label">Liquidar</span>
+    </button>
+    <button class="nav-btn" data-view="productos">
+      <span class="icon">📦</span><span class="label">Productos</span>
+    </button>
+  </nav>
+
+  <!-- Supabase SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Config -->
+  <script src="js/config.js"></script>
+  <!-- App -->
+  <script src="js/app.js"></script>
+
+</body>
+</html>
