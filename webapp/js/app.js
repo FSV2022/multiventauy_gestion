@@ -81,6 +81,14 @@ function sum(arr, key) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// TARIFAS DE ENVÍO (cadetería Marco Postal)
+// ─────────────────────────────────────────────────────────────
+const ZONAS = {
+  MVD:      { label: 'Montevideo',  envio_cobrado: 199, costo_cadeteria: 244, costo_cancelado: 189.10 },
+  CANELONES:{ label: 'Canelones',   envio_cobrado: 285, costo_cadeteria: 317, costo_cancelado: 231.80 },
+};
+
+// ─────────────────────────────────────────────────────────────
 // CÁLCULOS DE NEGOCIO
 // ─────────────────────────────────────────────────────────────
 function calcSemana(pedidos, lunesISO, domingoISO) {
@@ -556,17 +564,42 @@ function renderNuevo() {
           <div class="prod-option" data-id="${p.id}"
             data-precio="${p.precio_venta}"
             data-costo="${p.costo_producto}"
-            data-envio="${p.costo_envio_default}"
             data-nombre="${escHtml(p.nombre)}"
+            data-gratis="${p.envio_gratis ? '1' : '0'}"
             onclick="selectProducto(this)">
             <div class="prod-option-name">${escHtml(p.nombre)}</div>
-            <div class="prod-option-price">${fmt(p.precio_venta)}</div>
+            <div style="display:flex;align-items:center;gap:6px;justify-content:center;flex-wrap:wrap">
+              <div class="prod-option-price">${fmt(p.precio_venta)}</div>
+              ${p.envio_gratis ? '<span class="badge-envio-gratis">ENVÍO GRATIS</span>' : ''}
+            </div>
           </div>
         `).join('')}
       </div>
 
+      <!-- Panel de envío (se actualiza al cambiar zona o producto) -->
+      <div id="envio-panel" class="envio-panel"></div>
+
       <div class="section-title">Datos del cliente</div>
       <div class="card" style="padding:14px">
+        <!-- Zona -->
+        <div class="form-group">
+          <label class="form-label">Zona de entrega</label>
+          <div class="zona-selector">
+            ${Object.entries(ZONAS).map(([key, z]) => `
+              <label class="zona-option">
+                <input type="radio" name="np_zona" value="${key}" ${key === 'MVD' ? 'checked' : ''}
+                  onchange="actualizarZona()">
+                <div class="zona-btn">
+                  <div class="zona-nombre">${z.label}</div>
+                  <div class="zona-detalle">
+                    <span class="zona-cobra">cobra ${fmt(z.envio_cobrado)}</span>
+                    <span class="zona-paga">paga ${fmt(z.costo_cadeteria)}</span>
+                  </div>
+                </div>
+              </label>
+            `).join('')}
+          </div>
+        </div>
         <div class="form-group">
           <label class="form-label">Nombre <span class="req">*</span></label>
           <input type="text" class="form-control" id="np_cliente" placeholder="Ej: Ana García"
@@ -594,22 +627,29 @@ function renderNuevo() {
       <div class="card" style="padding:14px">
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Precio venta <span class="req">*</span></label>
-            <input type="number" class="form-control" id="np_precio" placeholder="0"
-              inputmode="numeric">
+            <label class="form-label">Precio venta <span class="req">*</span>
+              <span class="form-hint" id="np_precio_hint"></span>
+            </label>
+            <input type="number" class="form-control" id="np_precio" placeholder="0" inputmode="numeric">
           </div>
           <div class="form-group">
-            <label class="form-label">Costo cadetería</label>
-            <input type="number" class="form-control" id="np_envio" placeholder="0"
-              inputmode="numeric">
+            <label class="form-label">Costo producto</label>
+            <input type="number" class="form-control" id="np_costo" placeholder="0" inputmode="numeric">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label">Costo producto</label>
-            <input type="number" class="form-control" id="np_costo" placeholder="0"
-              inputmode="numeric">
+            <label class="form-label">Costo cadetería</label>
+            <input type="number" class="form-control" id="np_envio" placeholder="0" inputmode="numeric" readonly
+              style="background:var(--gray-100);color:var(--gray-500)">
           </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Envío cobrado al cliente</label>
+            <input type="number" class="form-control" id="np_envio_cobrado" placeholder="0" inputmode="numeric" readonly
+              style="background:var(--gray-100);color:var(--gray-500)">
+          </div>
+        </div>
+        <div class="form-row" style="margin-top:10px">
           <div class="form-group" style="margin-bottom:0">
             <label class="form-label">Estado inicial</label>
             <select class="form-control" id="np_estado">
@@ -617,6 +657,10 @@ function renderNuevo() {
               <option value="enviado">Enviado</option>
               <option value="entregado">Entregado</option>
             </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Nro. de guía MP</label>
+            <input type="text" class="form-control" id="np_guia" placeholder="opcional">
           </div>
         </div>
       </div>
@@ -637,12 +681,94 @@ function renderNuevo() {
   if (first) selectProducto(first);
 }
 
+function getZonaSeleccionada() {
+  const radio = document.querySelector('input[name="np_zona"]:checked');
+  return radio ? radio.value : 'MVD';
+}
+
 function selectProducto(el) {
   document.querySelectorAll('.prod-option').forEach(e => e.classList.remove('selected'));
   el.classList.add('selected');
-  document.getElementById('np_precio').value = el.dataset.precio;
-  document.getElementById('np_envio').value  = el.dataset.envio;
-  document.getElementById('np_costo').value  = el.dataset.costo;
+  document.getElementById('np_costo').value = el.dataset.costo;
+  actualizarZona();
+}
+
+function actualizarZona() {
+  const sel = document.querySelector('.prod-option.selected');
+  if (!sel) return;
+
+  const zona      = getZonaSeleccionada();
+  const z         = ZONAS[zona];
+  const esGratis  = sel.dataset.gratis === '1';
+  const precioBase= parseFloat(sel.dataset.precio) || 0;
+
+  // Precio venta al cliente
+  const precioFinal = esGratis ? precioBase : precioBase + z.envio_cobrado;
+
+  document.getElementById('np_precio').value        = precioFinal;
+  document.getElementById('np_envio').value         = z.costo_cadeteria;
+  document.getElementById('np_envio_cobrado').value = esGratis ? 0 : z.envio_cobrado;
+
+  // Hint de precio
+  const hintEl = document.getElementById('np_precio_hint');
+  if (hintEl) {
+    hintEl.textContent = esGratis
+      ? `(combo ${fmt(precioBase)} — sin envío)`
+      : `(combo ${fmt(precioBase)} + envío ${fmt(z.envio_cobrado)})`;
+  }
+
+  // Panel informativo de envío
+  const panelEl = document.getElementById('envio-panel');
+  if (!panelEl) return;
+
+  const ganBase = precioBase - parseFloat(sel.dataset.costo || 0) - z.costo_cadeteria;
+
+  panelEl.innerHTML = esGratis
+    ? `<div class="envio-gratis-banner">
+        <span class="badge-envio-gratis" style="font-size:.9rem;padding:4px 12px">ENVÍO GRATIS</span>
+        <div class="envio-gratis-detalle">
+          El cliente no paga envío. Cadetería cobra <strong>${fmt(z.costo_cadeteria)}</strong>
+          (sale del margen del combo)
+        </div>
+        <div class="envio-costos-row">
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Cliente paga envío</div>
+            <div class="envio-costo-value text-success">$0</div>
+          </div>
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Costo cadetería</div>
+            <div class="envio-costo-value text-danger">${fmt(z.costo_cadeteria)}</div>
+          </div>
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Si cancela</div>
+            <div class="envio-costo-value text-danger">${fmt(z.costo_cancelado)}</div>
+          </div>
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Ganancia estimada</div>
+            <div class="envio-costo-value ${ganBase >= 0 ? 'text-success' : 'text-danger'}">${fmt(ganBase)}</div>
+          </div>
+        </div>
+      </div>`
+    : `<div class="envio-info-panel">
+        <div class="envio-costos-row">
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Cliente paga envío</div>
+            <div class="envio-costo-value">${fmt(z.envio_cobrado)}</div>
+          </div>
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Costo cadetería</div>
+            <div class="envio-costo-value text-danger">${fmt(z.costo_cadeteria)}</div>
+          </div>
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Pérdida envío</div>
+            <div class="envio-costo-value text-danger">${fmt(z.envio_cobrado - z.costo_cadeteria)}</div>
+          </div>
+          <div class="envio-costo-item">
+            <div class="envio-costo-label">Si cancela</div>
+            <div class="envio-costo-value text-danger">${fmt(z.costo_cancelado)}</div>
+          </div>
+        </div>
+      </div>`;
 }
 
 async function submitNuevoPedido() {
@@ -659,19 +785,23 @@ async function submitNuevoPedido() {
   btn.textContent = 'Guardando...';
 
   const estado = document.getElementById('np_estado').value;
+  const zona   = getZonaSeleccionada();
   const payload = {
-    fecha_pedido:   document.getElementById('np_fecha').value,
-    fecha_entrega:  estado === 'entregado' ? document.getElementById('np_fecha').value : null,
-    nombre_cliente: cliente,
-    telefono:       document.getElementById('np_telefono').value.trim(),
-    direccion:      document.getElementById('np_direccion').value.trim(),
-    producto_id:    selected.dataset.id,
-    nombre_producto:selected.dataset.nombre,
-    precio_venta:   precio,
-    costo_envio:    parseFloat(document.getElementById('np_envio').value) || 0,
-    costo_producto: parseFloat(document.getElementById('np_costo').value) || 0,
-    estado:         estado,
-    notas:          document.getElementById('np_notas').value.trim(),
+    fecha_pedido:    document.getElementById('np_fecha').value,
+    fecha_entrega:   estado === 'entregado' ? document.getElementById('np_fecha').value : null,
+    nombre_cliente:  cliente,
+    telefono:        document.getElementById('np_telefono').value.trim(),
+    direccion:       document.getElementById('np_direccion').value.trim(),
+    producto_id:     selected.dataset.id,
+    nombre_producto: selected.dataset.nombre,
+    precio_venta:    precio,
+    costo_envio:     parseFloat(document.getElementById('np_envio').value) || 0,
+    costo_producto:  parseFloat(document.getElementById('np_costo').value) || 0,
+    envio_cobrado:   parseFloat(document.getElementById('np_envio_cobrado').value) || 0,
+    departamento:    zona,
+    guia_mp:         document.getElementById('np_guia').value.trim() || null,
+    estado:          estado,
+    notas:           document.getElementById('np_notas').value.trim(),
   };
 
   try {
@@ -799,25 +929,33 @@ async function renderLiquidacion() {
                 <th>Cliente</th>
                 <th>Producto</th>
                 <th class="text-right">Venta</th>
-                <th class="text-right">Envío</th>
+                <th class="text-right">Cobrado envío</th>
+                <th class="text-right">Costo cad.</th>
                 <th class="text-right">Ganancia</th>
               </tr>
             </thead>
             <tbody>
               ${calc.entregados.map(p => {
                 const gan = p.precio_venta - p.costo_envio - p.costo_producto;
+                const envCobrado = p.envio_cobrado ?? p.costo_envio;
+                const esGratis = envCobrado === 0 && p.costo_envio > 0;
                 return `<tr>
                   <td>${escHtml(p.nombre_cliente)}</td>
-                  <td class="text-muted">${escHtml(p.nombre_producto)}</td>
+                  <td class="text-muted">
+                    ${escHtml(p.nombre_producto)}
+                    ${esGratis ? '<span class="badge-envio-gratis" style="font-size:.65rem;padding:1px 5px">GRATIS</span>' : ''}
+                  </td>
                   <td class="text-right fw-700">${fmt(p.precio_venta)}</td>
-                  <td class="text-right text-muted">${fmt(p.costo_envio)}</td>
+                  <td class="text-right ${esGratis ? 'text-success fw-700' : 'text-muted'}">${esGratis ? '$0' : fmt(envCobrado)}</td>
+                  <td class="text-right text-danger">${fmt(p.costo_envio)}</td>
                   <td class="text-right ${gan >= 0 ? 'text-success' : 'text-danger'} fw-700">${fmt(gan)}</td>
                 </tr>`;
               }).join('')}
               <tr style="border-top:2px solid var(--gray-200)">
                 <td colspan="2" class="fw-700">TOTAL</td>
                 <td class="text-right fw-700">${fmt(calc.total_ventas)}</td>
-                <td class="text-right fw-700">${fmt(calc.total_envios)}</td>
+                <td class="text-right text-muted">${fmt(calc.entregados.reduce((s,p)=>s+(p.envio_cobrado??p.costo_envio),0))}</td>
+                <td class="text-right text-danger fw-700">${fmt(calc.total_envios)}</td>
                 <td class="text-right fw-700 text-success">${fmt(calc.ganancia_real)}</td>
               </tr>
             </tbody>
@@ -891,19 +1029,32 @@ function renderProductos() {
 }
 
 function renderProductoRow(p) {
-  const ganancia = p.precio_venta - p.costo_producto - p.costo_envio_default;
+  const ganMVD = p.precio_venta - p.costo_producto - ZONAS.MVD.costo_cadeteria;
+  const ganCAN = p.precio_venta - p.costo_producto - ZONAS.CANELONES.costo_cadeteria;
   return `
     <div class="producto-row">
       <div class="producto-info">
-        <div class="flex items-center gap-8">
+        <div class="flex items-center gap-8" style="flex-wrap:wrap">
           <span class="producto-nombre">${escHtml(p.nombre)}</span>
           <span class="tipo-badge tipo-${p.tipo}">${p.tipo}</span>
+          ${p.envio_gratis ? '<span class="badge-envio-gratis">ENVÍO GRATIS</span>' : ''}
         </div>
         <div class="producto-precios">
           Venta: ${fmt(p.precio_venta)} &nbsp;·&nbsp;
-          Costo: ${fmt(p.costo_producto)} &nbsp;·&nbsp;
-          Envío: ${fmt(p.costo_envio_default)} &nbsp;·&nbsp;
-          <strong>Gan: ${fmt(ganancia)}</strong>
+          Costo prod: ${fmt(p.costo_producto)} &nbsp;·&nbsp;
+          ${p.envio_gratis
+            ? `Cadetería: <span class="text-danger">${fmt(ZONAS.MVD.costo_cadeteria)}</span> (cliente no paga)`
+            : `Cadetería MVD: ${fmt(ZONAS.MVD.costo_cadeteria)} / CAN: ${fmt(ZONAS.CANELONES.costo_cadeteria)}`
+          }
+        </div>
+        <div class="producto-precios" style="margin-top:2px">
+          ${p.envio_gratis
+            ? `Gan MVD: <strong class="${ganMVD>=0?'text-success':'text-danger'}">${fmt(ganMVD)}</strong> &nbsp;·&nbsp;
+               Gan CAN: <strong class="${ganCAN>=0?'text-success':'text-danger'}">${fmt(ganCAN)}</strong>
+               &nbsp;·&nbsp; <span class="text-muted" style="font-size:.75rem">Cancelado MVD: ${fmt(ZONAS.MVD.costo_cancelado)} / CAN: ${fmt(ZONAS.CANELONES.costo_cancelado)}</span>`
+            : `Gan MVD: <strong class="${ganMVD>=0?'text-success':'text-danger'}">${fmt(ganMVD)}</strong> &nbsp;·&nbsp;
+               Gan CAN: <strong class="${ganCAN>=0?'text-success':'text-danger'}">${fmt(ganCAN)}</strong>`
+          }
         </div>
       </div>
       <div class="flex gap-8 items-center">
@@ -930,7 +1081,7 @@ function openFormProducto(id) {
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Precio venta</label>
+        <label class="form-label">Precio venta (combo)</label>
         <input type="number" class="form-control" id="fp_precio" value="${p?.precio_venta ?? ''}" inputmode="numeric">
       </div>
       <div class="form-group">
@@ -940,10 +1091,6 @@ function openFormProducto(id) {
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Costo envío default</label>
-        <input type="number" class="form-control" id="fp_envio" value="${p?.costo_envio_default ?? ''}" inputmode="numeric">
-      </div>
-      <div class="form-group">
         <label class="form-label">Tipo</label>
         <select class="form-control" id="fp_tipo">
           <option value="simple" ${p?.tipo === 'simple' ? 'selected' : ''}>Simple</option>
@@ -951,6 +1098,52 @@ function openFormProducto(id) {
         </select>
       </div>
     </div>
+
+    <!-- Envío gratis toggle -->
+    <div class="card" style="padding:12px;margin-bottom:12px;border-left:3px solid #f97316">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="fw-700" style="font-size:.9rem">Envío gratis para el cliente</div>
+          <div class="text-sm text-muted">El cliente no paga envío. Cadetería sigue cobrando.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fp_envio_gratis" ${p?.envio_gratis ? 'checked' : ''}>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Info de costos de envío (solo referencia) -->
+    <div class="card" style="padding:10px;background:var(--gray-50);margin-bottom:12px">
+      <div class="text-sm fw-700 text-muted mb-4">Referencia costos cadetería</div>
+      <div class="envio-costos-row">
+        <div class="envio-costo-item">
+          <div class="envio-costo-label">MVD — cobra cliente</div>
+          <div class="envio-costo-value">$199</div>
+        </div>
+        <div class="envio-costo-item">
+          <div class="envio-costo-label">MVD — paga cadetería</div>
+          <div class="envio-costo-value text-danger">$244</div>
+        </div>
+        <div class="envio-costo-item">
+          <div class="envio-costo-label">CAN — cobra cliente</div>
+          <div class="envio-costo-value">$285</div>
+        </div>
+        <div class="envio-costo-item">
+          <div class="envio-costo-label">CAN — paga cadetería</div>
+          <div class="envio-costo-value text-danger">$317</div>
+        </div>
+        <div class="envio-costo-item">
+          <div class="envio-costo-label">Si cancela MVD</div>
+          <div class="envio-costo-value text-danger">$189.10</div>
+        </div>
+        <div class="envio-costo-item">
+          <div class="envio-costo-label">Si cancela CAN</div>
+          <div class="envio-costo-value text-danger">$231.80</div>
+        </div>
+      </div>
+    </div>
+
     <button class="btn btn-primary btn-block" onclick="guardarProducto('${id || ''}')">
       ${p ? 'Guardar cambios' : 'Crear producto'}
     </button>
@@ -965,8 +1158,9 @@ async function guardarProducto(id) {
     nombre,
     precio_venta:        parseFloat(document.getElementById('fp_precio').value) || 0,
     costo_producto:      parseFloat(document.getElementById('fp_costo').value)  || 0,
-    costo_envio_default: parseFloat(document.getElementById('fp_envio').value)  || 0,
+    costo_envio_default: ZONAS.MVD.costo_cadeteria,
     tipo:                document.getElementById('fp_tipo').value,
+    envio_gratis:        document.getElementById('fp_envio_gratis').checked,
   };
 
   try {
