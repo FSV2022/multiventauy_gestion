@@ -255,6 +255,20 @@ function renderDashboard() {
         </div>
       </div>
 
+      <!-- Publicidad pendiente -->
+      <div id="publicidad-card" class="card mt-12" style="border-left:4px solid #f97316">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="stat-label" style="margin-bottom:4px">Publicidad pendiente de pago</div>
+            <div id="publicidad-monto" class="stat-value" style="color:#f97316;font-size:1.6rem">
+              Cargando...
+            </div>
+            <div id="publicidad-sub" class="stat-sub"></div>
+          </div>
+          <div style="font-size:2rem;opacity:.7">📢</div>
+        </div>
+      </div>
+
       <!-- Botón rápido -->
       <button class="btn btn-primary btn-block mt-12" onclick="navigate('nuevo')">
         ➕ &nbsp; Nuevo pedido
@@ -271,6 +285,49 @@ function renderDashboard() {
 
   // Eventos de cards
   attachPedidoCardEvents();
+
+  // Cargar saldo de publicidad de forma asíncrona
+  _cargarPublicidadSaldo();
+}
+
+async function _cargarPublicidadSaldo() {
+  try {
+    const { data, error } = await db
+      .from('publicidad_saldo')
+      .select('saldo_pendiente, gasto_hoy, gasto_acumulado, actualizado_at, fecha')
+      .order('fecha', { ascending: false })
+      .limit(1)
+      .single();
+
+    const montoEl = document.getElementById('publicidad-monto');
+    const subEl   = document.getElementById('publicidad-sub');
+    if (!montoEl) return; // usuario navegó antes de que cargue
+
+    if (error || !data) {
+      montoEl.textContent = '$0';
+      if (subEl) subEl.textContent = 'Sin datos aún — se actualiza a las 23:55';
+      return;
+    }
+
+    const saldo = parseFloat(data.saldo_pendiente) || 0;
+    montoEl.textContent = fmt(saldo);
+
+    if (subEl) {
+      const actualizadoAt = data.actualizado_at
+        ? new Date(data.actualizado_at).toLocaleDateString('es-UY', { day:'2-digit', month:'short' })
+        : data.fecha || '';
+      subEl.textContent = `Gasto hoy: ${fmt(data.gasto_hoy)} | Actualizado: ${actualizadoAt}`;
+    }
+
+    // Si no hay saldo, cambiar borde a verde
+    if (saldo === 0) {
+      const card = document.getElementById('publicidad-card');
+      if (card) card.style.borderLeftColor = '#22c55e';
+    }
+  } catch (e) {
+    const montoEl = document.getElementById('publicidad-monto');
+    if (montoEl) montoEl.textContent = '$—';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
