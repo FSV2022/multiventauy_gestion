@@ -24,6 +24,10 @@ const State = {
   editId:     null,
 };
 
+// Carrito temporal para el formulario "Nuevo Pedido"
+// { productoId: { id, nombre, precio, costo, gratis, qty } }
+let npCart = {};
+
 // ─────────────────────────────────────────────────────────────
 // UTILIDADES
 // ─────────────────────────────────────────────────────────────
@@ -277,6 +281,16 @@ function renderDashboard() {
         </div>
       </div>
 
+      <!-- Stock Marco Postal -->
+      <div id="stock-card" class="card mt-12" style="border-left:4px solid #6366f1">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="stat-label" style="margin:0;font-weight:600">Stock en Marco Postal</div>
+          <div style="font-size:1.4rem;opacity:.7">📦</div>
+        </div>
+        <div id="stock-body"><div class="text-sm text-muted">Cargando...</div></div>
+        <div id="stock-actualizado" class="stat-sub" style="margin-top:6px"></div>
+      </div>
+
       <!-- Botón rápido -->
       <button class="btn btn-primary btn-block mt-12" onclick="navigate('nuevo')">
         ➕ &nbsp; Nuevo pedido
@@ -294,8 +308,9 @@ function renderDashboard() {
   // Eventos de cards
   attachPedidoCardEvents();
 
-  // Cargar saldo de publicidad de forma asíncrona
+  // Cargar datos asíncronos
   _cargarPublicidadSaldo();
+  _cargarStock();
 }
 
 async function _cargarPublicidadSaldo() {
@@ -335,6 +350,53 @@ async function _cargarPublicidadSaldo() {
   } catch (e) {
     const montoEl = document.getElementById('publicidad-monto');
     if (montoEl) montoEl.textContent = '$—';
+  }
+}
+
+async function _cargarStock() {
+  try {
+    const { data, error } = await db
+      .from('stock_mp')
+      .select('codigo, articulo, stock, stock_total, actualizado_at')
+      .order('articulo', { ascending: true });
+
+    const bodyEl  = document.getElementById('stock-body');
+    const actEl   = document.getElementById('stock-actualizado');
+    if (!bodyEl) return;
+
+    if (error || !data || data.length === 0) {
+      bodyEl.innerHTML = '<div class="text-sm text-muted">Sin datos — se actualiza a las 17:00</div>';
+      return;
+    }
+
+    const rows = data.map(p => {
+      const s = p.stock;
+      const color  = s <= 3  ? '#ef4444' : s <= 8 ? '#f97316' : '#22c55e';
+      const emoji  = s <= 3  ? '🔴' : s <= 8 ? '🟡' : '🟢';
+      return `
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    padding:6px 0;border-bottom:1px solid var(--border)">
+          <div class="text-sm">${emoji} ${p.articulo}</div>
+          <div style="font-weight:700;color:${color};font-size:.95rem">${s} <span class="text-muted" style="font-weight:400;font-size:.8rem">/ ${p.stock_total}</span></div>
+        </div>`;
+    }).join('');
+
+    bodyEl.innerHTML = rows;
+
+    if (actEl && data[0].actualizado_at) {
+      const d = new Date(data[0].actualizado_at);
+      actEl.textContent = `Actualizado: ${d.toLocaleDateString('es-UY', {day:'2-digit',month:'short'})} ${d.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit'})}`;
+    }
+
+    // Cambiar borde del card según el peor estado
+    const minStock = Math.min(...data.map(p => p.stock));
+    const card = document.getElementById('stock-card');
+    if (card) {
+      card.style.borderLeftColor = minStock <= 3 ? '#ef4444' : minStock <= 8 ? '#f97316' : '#22c55e';
+    }
+  } catch(e) {
+    const bodyEl = document.getElementById('stock-body');
+    if (bodyEl) bodyEl.innerHTML = '<div class="text-sm text-muted">Error al cargar stock</div>';
   }
 }
 
@@ -408,6 +470,7 @@ function renderPedidoCard(p) {
         <div class="pedido-meta">
           Pedido: ${fmtFecha(p.fecha_pedido)}
           ${p.fecha_entrega ? ` · Entrega: ${fmtFecha(p.fecha_entrega)}` : ''}
+          ${p.guia_mp ? ` · <strong>Guía #${escHtml(p.guia_mp)}</strong>` : ''}
         </div>
       </div>
       <div>
@@ -491,6 +554,16 @@ function openEditPedido(p) {
       <label class="form-label">Dirección</label>
       <input type="text" class="form-control" id="edit_direccion" value="${escHtml(p.direccion || '')}">
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Nro. de guía MP</label>
+        <input type="text" class="form-control" id="edit_guia_mp" value="${escHtml(p.guia_mp || '')}" placeholder="sin guía">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Producto</label>
+        <input type="text" class="form-control" id="edit_nombre_producto" value="${escHtml(p.nombre_producto || '')}">
+      </div>
+    </div>
     <div class="form-group">
       <label class="form-label">Notas</label>
       <textarea class="form-control" id="edit_notas" rows="2">${escHtml(p.notas || '')}</textarea>
@@ -517,6 +590,8 @@ async function guardarEditPedido() {
     costo_envio:     parseFloat(document.getElementById('edit_costo_envio').value) || 0,
     costo_producto:  parseFloat(document.getElementById('edit_costo_producto').value) || 0,
     direccion:       document.getElementById('edit_direccion').value.trim(),
+    guia_mp:         document.getElementById('edit_guia_mp').value.trim() || null,
+    nombre_producto: document.getElementById('edit_nombre_producto').value.trim(),
     notas:           document.getElementById('edit_notas').value.trim(),
   };
 
@@ -554,11 +629,12 @@ async function confirmarEliminar(id) {
 // RENDER: NUEVO PEDIDO
 // ─────────────────────────────────────────────────────────────
 function renderNuevo() {
+  npCart = {}; // resetear carrito al entrar
   const activos = State.productos.filter(p => p.activo);
 
   document.getElementById('app-content').innerHTML = `
     <div class="view">
-      <div class="section-title" style="margin-top:4px">Seleccioná el producto</div>
+      <div class="section-title" style="margin-top:4px">Seleccioná los productos</div>
       <div class="prod-selector" id="prodSelector">
         ${activos.map(p => `
           <div class="prod-option" data-id="${p.id}"
@@ -566,7 +642,7 @@ function renderNuevo() {
             data-costo="${p.costo_producto}"
             data-nombre="${escHtml(p.nombre)}"
             data-gratis="${p.envio_gratis ? '1' : '0'}"
-            onclick="selectProducto(this)">
+            onclick="addToCart(this)">
             <div class="prod-option-name">${escHtml(p.nombre)}</div>
             <div style="display:flex;align-items:center;gap:6px;justify-content:center;flex-wrap:wrap">
               <div class="prod-option-price">${fmt(p.precio_venta)}</div>
@@ -575,6 +651,9 @@ function renderNuevo() {
           </div>
         `).join('')}
       </div>
+
+      <!-- Carrito de productos seleccionados -->
+      <div id="cart-section"></div>
 
       <!-- Panel de envío (se actualiza al cambiar zona o producto) -->
       <div id="envio-panel" class="envio-panel"></div>
@@ -686,42 +765,109 @@ function getZonaSeleccionada() {
   return radio ? radio.value : 'MVD';
 }
 
-function selectProducto(el) {
-  document.querySelectorAll('.prod-option').forEach(e => e.classList.remove('selected'));
-  el.classList.add('selected');
-  document.getElementById('np_costo').value = el.dataset.costo;
+function addToCart(el) {
+  const id = el.dataset.id;
+  if (!npCart[id]) {
+    npCart[id] = {
+      id,
+      nombre: el.dataset.nombre,
+      precio: parseFloat(el.dataset.precio) || 0,
+      costo:  parseFloat(el.dataset.costo)  || 0,
+      gratis: el.dataset.gratis === '1',
+      qty:    0,
+    };
+  }
+  npCart[id].qty++;
+  _refreshCart();
+}
+
+function changeQty(id, delta) {
+  if (!npCart[id]) return;
+  npCart[id].qty = Math.max(0, npCart[id].qty + delta);
+  if (npCart[id].qty === 0) delete npCart[id];
+  _refreshCart();
+}
+
+function _refreshCart() {
+  // Actualizar badges en las tarjetas de producto
+  document.querySelectorAll('.prod-option').forEach(el => {
+    const id  = el.dataset.id;
+    const qty = npCart[id]?.qty || 0;
+    el.classList.toggle('selected', qty > 0);
+    let badge = el.querySelector('.cart-qty-badge');
+    if (qty > 0) {
+      if (!badge) { badge = document.createElement('div'); badge.className = 'cart-qty-badge'; el.appendChild(badge); }
+      badge.textContent = `×${qty}`;
+    } else if (badge) {
+      badge.remove();
+    }
+  });
+
+  const items  = Object.values(npCart).filter(i => i.qty > 0);
+  const cartEl = document.getElementById('cart-section');
+  if (!cartEl) return;
+
+  if (items.length === 0) {
+    cartEl.innerHTML = '';
+    ['np_precio','np_costo','np_envio','np_envio_cobrado'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    const p = document.getElementById('envio-panel'); if (p) p.innerHTML = '';
+    return;
+  }
+
+  const totalCosto = items.reduce((s, i) => s + i.costo * i.qty, 0);
+  document.getElementById('np_costo').value = totalCosto;
+
+  cartEl.innerHTML = `
+    <div class="cart-box">
+      <div class="cart-title">Carrito</div>
+      ${items.map(i => `
+        <div class="cart-item">
+          <div class="cart-item-name">${escHtml(i.nombre)}${i.gratis ? ' <span class="badge-envio-gratis" style="font-size:.65rem;padding:1px 6px">GRATIS</span>' : ''}</div>
+          <div class="cart-item-controls">
+            <button class="cart-qty-btn" onclick="changeQty('${i.id}', -1)">−</button>
+            <span class="cart-qty-num">${i.qty}</span>
+            <button class="cart-qty-btn" onclick="changeQty('${i.id}', +1)">+</button>
+            <span class="cart-item-price">${fmt(i.precio * i.qty)}</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
   actualizarZona();
 }
 
 function actualizarZona() {
-  const sel = document.querySelector('.prod-option.selected');
-  if (!sel) return;
+  const items = Object.values(npCart).filter(i => i.qty > 0);
+  if (items.length === 0) return;
 
   const zona      = getZonaSeleccionada();
   const z         = ZONAS[zona];
-  const esGratis  = sel.dataset.gratis === '1';
-  const precioBase= parseFloat(sel.dataset.precio) || 0;
+  const anyGratis = items.some(i => i.gratis);
+  const totalProd = items.reduce((s, i) => s + i.precio * i.qty, 0);
+  const totalCosto= items.reduce((s, i) => s + i.costo  * i.qty, 0);
 
   // Precio venta al cliente
-  const precioFinal = esGratis ? precioBase : precioBase + z.envio_cobrado;
+  const precioFinal = anyGratis ? totalProd : totalProd + z.envio_cobrado;
 
   document.getElementById('np_precio').value        = precioFinal;
   document.getElementById('np_envio').value         = z.costo_cadeteria;
-  document.getElementById('np_envio_cobrado').value = esGratis ? 0 : z.envio_cobrado;
+  document.getElementById('np_envio_cobrado').value = anyGratis ? 0 : z.envio_cobrado;
 
   // Hint de precio
   const hintEl = document.getElementById('np_precio_hint');
   if (hintEl) {
-    hintEl.textContent = esGratis
-      ? `(combo ${fmt(precioBase)} — sin envío)`
-      : `(combo ${fmt(precioBase)} + envío ${fmt(z.envio_cobrado)})`;
+    hintEl.textContent = anyGratis
+      ? `(productos ${fmt(totalProd)} — sin envío)`
+      : `(productos ${fmt(totalProd)} + envío ${fmt(z.envio_cobrado)})`;
   }
 
   // Panel informativo de envío
   const panelEl = document.getElementById('envio-panel');
   if (!panelEl) return;
 
-  const ganBase = precioBase - parseFloat(sel.dataset.costo || 0) - z.costo_cadeteria;
+  const ganBase = totalProd - totalCosto - z.costo_cadeteria;
 
   panelEl.innerHTML = esGratis
     ? `<div class="envio-gratis-banner">
@@ -772,13 +918,13 @@ function actualizarZona() {
 }
 
 async function submitNuevoPedido() {
-  const selected = document.querySelector('.prod-option.selected');
-  const cliente  = document.getElementById('np_cliente').value.trim();
-  const precio   = parseFloat(document.getElementById('np_precio').value) || 0;
+  const items   = Object.values(npCart).filter(i => i.qty > 0);
+  const cliente = document.getElementById('np_cliente').value.trim();
+  const precio  = parseFloat(document.getElementById('np_precio').value) || 0;
 
-  if (!cliente) { toast('Ingresá el nombre del cliente', 'error'); return; }
-  if (!selected) { toast('Seleccioná un producto', 'error'); return; }
-  if (!precio)   { toast('Ingresá el precio de venta', 'error'); return; }
+  if (!cliente)         { toast('Ingresá el nombre del cliente', 'error'); return; }
+  if (items.length === 0) { toast('Seleccioná al menos un producto', 'error'); return; }
+  if (!precio)          { toast('Ingresá el precio de venta', 'error'); return; }
 
   const btn = document.getElementById('btnSubmit');
   btn.disabled = true;
@@ -786,17 +932,24 @@ async function submitNuevoPedido() {
 
   const estado = document.getElementById('np_estado').value;
   const zona   = getZonaSeleccionada();
+
+  // Nombre del producto: "Combo Express + Colador ×2"
+  const nombreProducto = items
+    .map(i => i.qty > 1 ? `${i.nombre} ×${i.qty}` : i.nombre)
+    .join(' + ');
+  const totalCosto = items.reduce((s, i) => s + i.costo * i.qty, 0);
+
   const payload = {
     fecha_pedido:    document.getElementById('np_fecha').value,
     fecha_entrega:   estado === 'entregado' ? document.getElementById('np_fecha').value : null,
     nombre_cliente:  cliente,
     telefono:        document.getElementById('np_telefono').value.trim(),
     direccion:       document.getElementById('np_direccion').value.trim(),
-    producto_id:     selected.dataset.id,
-    nombre_producto: selected.dataset.nombre,
+    producto_id:     items.length === 1 ? items[0].id : null,
+    nombre_producto: nombreProducto,
     precio_venta:    precio,
     costo_envio:     parseFloat(document.getElementById('np_envio').value) || 0,
-    costo_producto:  parseFloat(document.getElementById('np_costo').value) || 0,
+    costo_producto:  totalCosto,
     envio_cobrado:   parseFloat(document.getElementById('np_envio_cobrado').value) || 0,
     departamento:    zona,
     guia_mp:         document.getElementById('np_guia').value.trim() || null,
