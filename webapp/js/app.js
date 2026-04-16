@@ -317,7 +317,7 @@ async function _cargarPublicidadSaldo() {
   try {
     const { data, error } = await db
       .from('publicidad_saldo')
-      .select('saldo_pendiente, gasto_hoy, gasto_acumulado, actualizado_at, fecha')
+      .select('deuda_facebook, gasto_hoy, gasto_acumulado, actualizado_at, fecha')
       .order('fecha', { ascending: false })
       .limit(1)
       .single();
@@ -332,7 +332,7 @@ async function _cargarPublicidadSaldo() {
       return;
     }
 
-    const saldo = parseFloat(data.saldo_pendiente) || 0;
+    const saldo = parseFloat(data.deuda_facebook) || 0;
     montoEl.textContent = fmt(saldo);
 
     if (subEl) {
