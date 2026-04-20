@@ -101,13 +101,24 @@ function calcSemana(pedidos, lunesISO, domingoISO) {
     p.fecha_entrega >= lunesISO &&
     p.fecha_entrega <= domingoISO
   );
+  const cancelados = pedidos.filter(p =>
+    p.estado === 'cancelado' &&
+    p.fecha_pedido >= lunesISO &&
+    p.fecha_pedido <= domingoISO
+  );
   const total_ventas     = sum(entregados, 'precio_venta');
   const total_envios     = sum(entregados, 'costo_envio');
   const costos_productos = sum(entregados, 'costo_producto');
-  const ganancia_real    = total_ventas - total_envios - costos_productos;
+  // Cancelados: cadetería cobra igual aunque no se entregue
+  const costo_cancelados = cancelados.reduce((acc, p) => {
+    const zona = ZONAS[p.departamento] || ZONAS.MVD;
+    const costo = (p.costo_envio > 0) ? p.costo_envio : zona.costo_cancelado;
+    return acc + costo;
+  }, 0);
+  const ganancia_real    = total_ventas - total_envios - costos_productos - costo_cancelados;
   const mi_parte         = costos_productos * NEGOCIO.costo_split + ganancia_real * NEGOCIO.mi_porcentaje;
   const parte_socio      = costos_productos * NEGOCIO.costo_split + ganancia_real * NEGOCIO.soc_porcentaje;
-  return { entregados, total_ventas, total_envios, costos_productos, ganancia_real, mi_parte, parte_socio };
+  return { entregados, cancelados, total_ventas, total_envios, costos_productos, costo_cancelados, ganancia_real, mi_parte, parte_socio };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1010,13 +1021,21 @@ async function renderLiquidacion() {
         </div>
         <div class="liq-card naranja">
           <div class="liq-card-label">Apartar envíos</div>
-          <div class="liq-card-value">${fmt(calc.total_envios)}</div>
-          <div class="liq-card-sub">a pagar cadetería</div>
+          <div class="liq-card-value">${fmt(calc.total_envios + calc.costo_cancelados)}</div>
+          <div class="liq-card-sub">
+            a pagar cadetería
+            ${calc.costo_cancelados > 0 ? `<br><span style="font-size:.75rem;color:#c0392b">⚠️ incl. ${fmt(calc.costo_cancelados)} de ${calc.cancelados.length} cancelado${calc.cancelados.length > 1 ? 's' : ''}</span>` : ''}
+          </div>
         </div>
         <div class="liq-card rojo">
           <div class="liq-card-label">Costos productos</div>
           <div class="liq-card-value">${fmt(calc.costos_productos)}</div>
           <div class="liq-card-sub">50% cada uno</div>
+        </div>
+        <div class="liq-card rojo">
+          <div class="liq-card-label">Cancelados (cadetería)</div>
+          <div class="liq-card-value">${fmt(calc.costo_cancelados)}</div>
+          <div class="liq-card-sub">${calc.cancelados.length} pedido${calc.cancelados.length !== 1 ? 's' : ''} cancelado${calc.cancelados.length !== 1 ? 's' : ''}</div>
         </div>
         <div class="liq-card verde">
           <div class="liq-card-label">Ganancia real</div>
@@ -1033,14 +1052,14 @@ async function renderLiquidacion() {
         <div class="flex justify-between items-center" style="padding:6px 0; border-bottom:1px solid var(--gray-100)">
           <div>
             <div class="fw-700">Mi parte (66%)</div>
-            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_real * 0.66)} ganancia</div>
+            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_real * 0.66)} ganancia${calc.costo_cancelados > 0 ? ` − ${fmt(calc.costo_cancelados * 0.5)} cancel.` : ''}</div>
           </div>
           <div class="stat-value success">${fmt(calc.mi_parte)}</div>
         </div>
         <div class="flex justify-between items-center" style="padding:6px 0">
           <div>
             <div class="fw-700">Socio (34%)</div>
-            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_real * 0.34)} ganancia</div>
+            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_real * 0.34)} ganancia${calc.costo_cancelados > 0 ? ` − ${fmt(calc.costo_cancelados * 0.5)} cancel.` : ''}</div>
           </div>
           <div class="stat-value primary">${fmt(calc.parte_socio)}</div>
         </div>
@@ -1070,6 +1089,38 @@ async function renderLiquidacion() {
         <textarea class="form-control" id="liqNotas" rows="2"
           placeholder="Ej: faltó depósito de tal pedido...">${escHtml(liqData?.notas || '')}</textarea>
       </div>
+
+      <!-- Pedidos cancelados esta semana -->
+      ${calc.cancelados.length > 0 ? `
+      <div class="section-title" style="color:#dc2626">Cancelados esta semana — costo cadetería a apartar</div>
+      <div class="card" style="padding:12px;overflow-x:auto;border-left:4px solid #dc2626">
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Producto</th>
+              <th class="text-right">Zona</th>
+              <th class="text-right">Costo cadetería</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${calc.cancelados.map(p => {
+              const zona = ZONAS[p.departamento] || ZONAS.MVD;
+              const costo = (p.costo_envio > 0) ? p.costo_envio : zona.costo_cancelado;
+              return `<tr>
+                <td>${escHtml(p.nombre_cliente)}</td>
+                <td class="text-muted">${escHtml(p.nombre_producto)}</td>
+                <td class="text-right">${zona.label}</td>
+                <td class="text-right text-danger fw-700">${fmt(costo)}</td>
+              </tr>`;
+            }).join('')}
+            <tr style="border-top:2px solid var(--gray-200)">
+              <td colspan="3" class="fw-700">TOTAL a apartar</td>
+              <td class="text-right text-danger fw-700">${fmt(calc.costo_cancelados)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>` : ''}
 
       <!-- Pedidos de la semana -->
       <div class="section-title">Pedidos entregados esta semana</div>
