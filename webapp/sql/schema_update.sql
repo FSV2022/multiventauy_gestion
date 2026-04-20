@@ -25,3 +25,21 @@ drop policy if exists "public_all" on publicidad_saldo;
 create policy "public_all" on publicidad_saldo for all using (true) with check (true);
 
 alter publication supabase_realtime add table publicidad_saldo;
+
+-- 3. Nueva tabla: stock_mp (stock de Marco Postal, actualizado por stock_mp.py a las 17:00)
+create table if not exists stock_mp (
+  codigo           text primary key,
+  articulo         text not null,
+  stock            integer not null default 0,
+  stock_total      integer not null default 0,
+  stock_pend_arm   integer not null default 0,
+  stock_armado     integer not null default 0,
+  actualizado_at   timestamptz default now()
+);
+
+alter table stock_mp enable row level security;
+
+drop policy if exists "public_all" on stock_mp;
+create policy "public_all" on stock_mp for all using (true) with check (true);
+
+alter publication supabase_realtime add table stock_mp;
