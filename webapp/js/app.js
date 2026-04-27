@@ -90,6 +90,7 @@ function sum(arr, key) {
 const ZONAS = {
   MVD:      { label: 'Montevideo',  envio_cobrado: 199, costo_cadeteria: 244, costo_cancelado: 189.10 },
   CANELONES:{ label: 'Canelones',   envio_cobrado: 285, costo_cadeteria: 317, costo_cancelado: 231.80 },
+  INTERIOR: { label: 'Interior',    envio_cobrado: 0,   costo_cadeteria: 109, costo_cancelado: 109    },
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -109,16 +110,20 @@ function calcSemana(pedidos, lunesISO, domingoISO) {
   const total_ventas     = sum(entregados, 'precio_venta');
   const total_envios     = sum(entregados, 'costo_envio');
   const costos_productos = sum(entregados, 'costo_producto');
+  // Solo órdenes que MP deposita (excluye interior/transferencia que no pasan por MP)
+  const entregados_mp    = entregados.filter(p => (p.departamento || 'MVD') !== 'INTERIOR');
+  const total_deposito   = sum(entregados_mp, 'precio_venta');
   // Cancelados: cadetería cobra igual aunque no se entregue
   const costo_cancelados = cancelados.reduce((acc, p) => {
     const zona = ZONAS[p.departamento] || ZONAS.MVD;
-    const costo = (p.costo_envio > 0) ? p.costo_envio : zona.costo_cancelado;
+    const costo = zona.costo_cancelado;
     return acc + costo;
   }, 0);
-  const ganancia_real    = total_ventas - total_envios - costos_productos - costo_cancelados;
-  const mi_parte         = costos_productos * NEGOCIO.costo_split + ganancia_real * NEGOCIO.mi_porcentaje;
-  const parte_socio      = costos_productos * NEGOCIO.costo_split + ganancia_real * NEGOCIO.soc_porcentaje;
-  return { entregados, cancelados, total_ventas, total_envios, costos_productos, costo_cancelados, ganancia_real, mi_parte, parte_socio };
+  const ganancia_bruta   = total_ventas - total_envios - costos_productos;
+  const ganancia_real    = ganancia_bruta - costo_cancelados;
+  const mi_parte         = costos_productos * NEGOCIO.costo_split + ganancia_bruta * NEGOCIO.mi_porcentaje - costo_cancelados * 0.5;
+  const parte_socio      = costos_productos * NEGOCIO.costo_split + ganancia_bruta * NEGOCIO.soc_porcentaje - costo_cancelados * 0.5;
+  return { entregados, cancelados, total_ventas, total_envios, costos_productos, costo_cancelados, ganancia_bruta, ganancia_real, mi_parte, parte_socio, total_deposito };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -859,12 +864,13 @@ function actualizarZona() {
   const totalProd = items.reduce((s, i) => s + i.precio * i.qty, 0);
   const totalCosto= items.reduce((s, i) => s + i.costo  * i.qty, 0);
 
-  // Precio venta al cliente
-  const precioFinal = anyGratis ? totalProd : totalProd + z.envio_cobrado;
+  // Precio venta al cliente = producto + envio cobrado al cliente
+  const envioCobrado = anyGratis && zona === 'MVD' ? 0 : z.envio_cobrado;
+  const precioFinal  = totalProd + envioCobrado;
 
   document.getElementById('np_precio').value        = precioFinal;
   document.getElementById('np_envio').value         = z.costo_cadeteria;
-  document.getElementById('np_envio_cobrado').value = anyGratis ? 0 : z.envio_cobrado;
+  document.getElementById('np_envio_cobrado').value = envioCobrado;
 
   // Hint de precio
   const hintEl = document.getElementById('np_precio_hint');
@@ -1052,14 +1058,14 @@ async function renderLiquidacion() {
         <div class="flex justify-between items-center" style="padding:6px 0; border-bottom:1px solid var(--gray-100)">
           <div>
             <div class="fw-700">Mi parte (66%)</div>
-            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_real * 0.66)} ganancia${calc.costo_cancelados > 0 ? ` − ${fmt(calc.costo_cancelados * 0.5)} cancel.` : ''}</div>
+            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_bruta * 0.66)} ganancia${calc.costo_cancelados > 0 ? ` − ${fmt(calc.costo_cancelados * 0.5)} cancel.` : ''}</div>
           </div>
           <div class="stat-value success">${fmt(calc.mi_parte)}</div>
         </div>
         <div class="flex justify-between items-center" style="padding:6px 0">
           <div>
             <div class="fw-700">Socio (34%)</div>
-            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_real * 0.34)} ganancia${calc.costo_cancelados > 0 ? ` − ${fmt(calc.costo_cancelados * 0.5)} cancel.` : ''}</div>
+            <div class="text-sm text-muted">${fmt(calc.costos_productos * 0.5)} costos + ${fmt(calc.ganancia_bruta * 0.34)} ganancia${calc.costo_cancelados > 0 ? ` − ${fmt(calc.costo_cancelados * 0.5)} cancel.` : ''}</div>
           </div>
           <div class="stat-value primary">${fmt(calc.parte_socio)}</div>
         </div>
@@ -1068,14 +1074,14 @@ async function renderLiquidacion() {
       <!-- Control de depósito -->
       <div class="deposito-card">
         <div class="deposito-title">💳 Control depósito cadetería</div>
-        <p class="text-sm text-muted mb-4">Esperado a recibir el lunes: <strong>${fmt(calc.total_ventas)}</strong></p>
+        <p class="text-sm text-muted mb-4">Esperado a recibir el lunes: <strong>${fmt(calc.total_deposito)}</strong></p>
         <div class="form-group" style="margin-bottom:0">
           <label class="form-label">Dinero recibido real</label>
           <input type="number" class="form-control" id="inputRecibido"
             value="${recibido}"
-            placeholder="${fmt(calc.total_ventas)}"
+            placeholder="${fmt(calc.total_deposito)}"
             inputmode="numeric"
-            oninput="calcDiff(${calc.total_ventas})">
+            oninput="calcDiff(${calc.total_deposito})">
         </div>
         ${diffHtml}
         <button class="btn btn-primary btn-sm mt-8" onclick="guardarDepositoLiq('${lunesISO}', '${domISO}')">
@@ -1106,7 +1112,7 @@ async function renderLiquidacion() {
           <tbody>
             ${calc.cancelados.map(p => {
               const zona = ZONAS[p.departamento] || ZONAS.MVD;
-              const costo = (p.costo_envio > 0) ? p.costo_envio : zona.costo_cancelado;
+              const costo = zona.costo_cancelado;
               return `<tr>
                 <td>${escHtml(p.nombre_cliente)}</td>
                 <td class="text-muted">${escHtml(p.nombre_producto)}</td>
