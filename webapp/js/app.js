@@ -1002,7 +1002,7 @@ async function renderLiquidacion() {
   // Diferencia
   let diffHtml = '';
   if (recibido !== '' && recibido !== null) {
-    const diff = parseFloat(recibido) - calc.total_ventas;
+    const diff = parseFloat(recibido) - calc.total_deposito;
     const cls  = Math.abs(diff) < 1 ? 'ok' : 'alerta';
     const icon = Math.abs(diff) < 1 ? '✅' : '⚠️';
     const label = diff > 0 ? `Recibiste $${fmt(diff)} de más` : diff < 0 ? `Faltaron ${fmt(Math.abs(diff))}` : 'Coincide exactamente';
